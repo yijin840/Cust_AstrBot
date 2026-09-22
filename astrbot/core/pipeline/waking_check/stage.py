@@ -129,6 +129,17 @@ class WakingCheckStage(Stage):
                 event.is_wake = True
                 event.message_str = event.message_str[len(wake_prefix) :].strip()
                 break
+            # [Cust] 2026-09-22: 昵称类前缀（非命令符）改为包含匹配——
+            # 句中提到即唤醒，不剥离文本，行为对齐 @ 唤醒（全句进对话）。
+            # 命令类前缀（/ 开头）保持严格 startswith，避免 URL/路径误触发。
+            if (
+                not wake_prefix.startswith("/")
+                and wake_prefix in event.message_str
+            ):
+                is_wake = True
+                event.is_at_or_wake_command = True
+                event.is_wake = True
+                break
         if not is_wake:
             # 检查是否有at消息 / at全体成员消息 / 引用了bot的消息
             for message in messages:
