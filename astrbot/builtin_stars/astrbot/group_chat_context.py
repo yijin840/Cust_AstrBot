@@ -209,11 +209,38 @@ class GroupChatContext:
                         url = comp.url if comp.url else comp.file
                         if not url:
                             raise Exception("图片 URL 为空")
-                        caption = await self.get_image_caption(
-                            url,
-                            cfg["image_caption_provider_id"],
-                            cfg["image_caption_prompt"],
-                        )
+                        # [Cust] 2026-09-22: caption 失败时按候选 provider 降级轮询，
+                        # 候选 = 配置的 caption provider + fallback_chat_models + default_provider_id，
+                        # 503/429 不再单点失败导致整条消息看不到图。
+                        _cands = [cfg["image_caption_provider_id"]]
+                        try:
+                            _ps = self.context.get_config().get("provider_settings", {})
+                            for _pid in list(_ps.get("fallback_chat_models") or []) + [
+                                _ps.get("default_provider_id")
+                            ]:
+                                if _pid and _pid not in _cands:
+                                    _cands.append(_pid)
+                        except Exception:
+                            pass
+                        _errs = []
+                        for _pid in _cands:
+                            try:
+                                caption = await self.get_image_caption(
+                                    url,
+                                    _pid,
+                                    cfg["image_caption_prompt"],
+                                )
+                                break
+                            except Exception as _e:
+                                _errs.append("%s: %s" % (_pid, str(_e)[:120]))
+                                continue
+                        if caption is None:
+                            logger.error(
+                                "获取图片描述失败（全部 %d 个候选均失败）: %s",
+                                len(_cands),
+                                " | ".join(_errs)[:400],
+                            )
+                            raise Exception("all caption providers failed")
                         parts.append(f" [Image: {caption}]")
                     except Exception as e:
                         logger.error(f"获取图片描述失败: {e}")

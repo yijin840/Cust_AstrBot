@@ -65,3 +65,24 @@ GenieData/
 .worktrees/
 
 dashboard/bun.lock
+
+# [Cust] 敏感信息防护（2026-09-22 增补，配合 scripts/check_secrets.py）
+# 环境/密钥
+.env
+.env.*
+**/.env
+# 数据库与运行时数据
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+# 插件配置（可能含 API key）
+**/astrbot_plugin_*_config.json
+# 备份与日志（可能含对话记录、密钥）
+*.bak
+*.backup
+*.log
+# 部署/运维产物（含服务器信息，仅存在于服务器与本地工具目录）
+webdav_check.py
+server-manager/

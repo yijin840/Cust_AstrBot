@@ -1,0 +1,12 @@
+#!/bin/sh
+# Cust_AstrBot pre-commit：提交前强制敏感信息自检。
+# 本目录通过 `git config core.hooksPath scripts/hooks` 启用（clone 后执行一次）。
+echo "[pre-commit] 运行敏感信息自检..."
+python scripts/check_secrets.py
+status=$?
+if [ $status -ne 0 ]; then
+  echo "[pre-commit] ❌ 自检未通过，提交被拒绝。"
+  echo "  如确需跳过（不建议）：git commit --no-verify"
+  exit 1
+fi
+exit 0
