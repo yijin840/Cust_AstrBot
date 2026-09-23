@@ -1,0 +1,87 @@
+{
+  "cache_size": {
+    "description": "静默记住本群最近多少条分享。只记录、不回复，用于让小蜗听懂「刚才那个卡片」这类指代。",
+    "type": "int",
+    "default": 5
+  },
+  "cache_ttl": {
+    "description": "缓存有效期（秒）。超过则忘记。默认 1800 秒 = 30 分钟。",
+    "type": "int",
+    "default": 1800
+  },
+  "skip_video_cards": {
+    "description": "跳过视频卡片：命中视频站（B站/抖音/快手/YouTube 等）的分享自动忽略，交给专门的视频解析插件处理。",
+    "type": "bool",
+    "default": true
+  },
+  "video_hosts": {
+    "description": "视频站域名黑名单，逗号分隔。命中即视为视频卡片并跳过。",
+    "type": "text",
+    "default": "bilibili.com,b23.tv,acfun.cn,douyin.com,iesdouyin.com,kuaishou.com,youtube.com,youtu.be,tiktok.com,channels.weixin.qq.com,ixigua.com,huya.com,douyu.com"
+  },
+  "enable_l1_direct": {
+    "description": "允许直连抓取网页正文（httpx）。能抓到的站点会补全正文，抓不到不影响卡片信息。",
+    "type": "bool",
+    "default": true
+  },
+  "enable_l2_api": {
+    "description": "允许调用官方接口补充内容（B站 view API、GitHub REST API、小黑盒 link/tree，均免登录）。小黑盒需要实时计算请求签名，关掉后只能拿到卡片上的标题摘要。",
+    "type": "bool",
+    "default": true
+  },
+  "enable_l3_local": {
+    "description": "允许解析群内文件（txt/md/pdf/代码）与合并转发聊天记录。",
+    "type": "bool",
+    "default": true
+  },
+  "max_chars": {
+    "description": "单次送进模型的正文字符上限，超出部分截断。",
+    "type": "int",
+    "default": 12000
+  },
+  "fetch_timeout": {
+    "description": "单条内容抓取超时（秒）。",
+    "type": "int",
+    "default": 15
+  },
+  "max_items": {
+    "description": "一次处理的最大分享条目数。",
+    "type": "int",
+    "default": 5
+  },
+  "summary_model": {
+    "description": "指定用于总结的模型 provider id（留空则用当前会话模型）。",
+    "type": "string",
+    "default": ""
+  },
+  "persona_style": {
+    "description": "总结是否带小蜗的口吻。关闭则输出中性结构化的要点。",
+    "type": "bool",
+    "default": true
+  },
+  "reject_private_ip": {
+    "description": "拒绝内网与链路本地地址，防止 SSRF。建议保持开启。",
+    "type": "bool",
+    "default": true
+  },
+  "enable_images": {
+    "description": "允许读懂图片。两个来源：群友把内容截图发来（多模态直接读图），以及抓正文时顺带取回的帖子配图（如小黑盒图文帖的菜单/价目表）。",
+    "type": "bool",
+    "default": true
+  },
+  "max_images": {
+    "description": "单次最多附带多少张图片给模型。帖子配图只有排在前面这么多张会被取回；每张超过 1.5MB 的会被跳过。",
+    "type": "int",
+    "default": 3
+  },
+  "enable_prefetch": {
+    "description": "预读注入：收到分享卡片/链接时，抢在模型作答前把正文抓好并塞进请求里。开启后小蜗不依赖「自己选中读链接工具」也能看见正文，也不会拿搜索结果的常识去编帖子内容。关闭则退回纯工具模式（实测模型会改用通用网页抓取，只能拿到标题）。",
+    "type": "bool",
+    "default": true
+  },
+  "prefetch_window": {
+    "description": "「刚才那条分享」的有效期（秒）。只在用户的消息像是在指代最近分享、且分享发生在这个时间窗内时才注入，避免闲聊时被糊一脸旧帖子。默认 600 秒 = 10 分钟。设 0 表示只处理「当前这条消息里带的分享」。",
+    "type": "int",
+    "default": 600
+  }
+}

@@ -1,0 +1,13 @@
+# 本插件刻意不引入任何新依赖。
+#
+# 依赖说明（全部为 AstrBot 基础环境自带）：
+#   httpx          —— HTTP 请求（AstrBot 核心依赖，必然存在）
+#   beautifulsoup4 —— HTML 解析（AstrBot 生态常见依赖）
+#   lxml           —— bs4 的高性能解析后端
+#   markdownify    —— HTML 转 Markdown，便于模型理解
+#
+# 若目标环境缺少 bs4/lxml，插件会自动降级为 Python 内置 html.parser，
+# 正文提取质量下降但功能不中断。
+#
+# 服务器资源约束：总内存 1685MB、磁盘剩余 5.7G，
+# 因此明确不引入 playwright / selenium / 任何浏览器内核。

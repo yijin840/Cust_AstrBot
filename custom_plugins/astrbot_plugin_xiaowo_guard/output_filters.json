@@ -1,0 +1,4 @@
+{
+  "_comment": "2026-09-21 11:38 用户指令：删除所有过滤器。22 条规则备份在同目录 output_filters.json.bak_22。保留 [pass] 拦截。",
+  "filters": []
+}

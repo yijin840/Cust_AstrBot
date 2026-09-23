@@ -1,0 +1,5 @@
+name: astrbot_plugin_xiaowo_guard
+desc: "小蜗输出护栏：LLM 回复为 [pass]（沉默标记）时整条不发送；发送前跑 22 条输出过滤正则（AI 自曝/客服腔/舞台说明/推理泄漏）。规则在 output_filters.json，改完重启生效。"
+version: v1.0.0
+author: jin
+repo: ""

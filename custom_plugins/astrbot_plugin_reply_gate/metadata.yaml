@@ -1,0 +1,5 @@
+name: astrbot_plugin_reply_gate
+desc: 群聊语境感知 + 发送前垃圾拦截：点名正常回，非点名一句话插话；工具调用/报错片段不出群
+version: v1.2.1
+author: jin
+repo: local
