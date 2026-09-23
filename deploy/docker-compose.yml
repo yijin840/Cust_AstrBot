@@ -1,0 +1,16 @@
+# 服务器 Docker 部署（小蜗）
+# 用法: 在服务器仓库目录(~/Cust_AstrBot)下  docker compose -f deploy/docker-compose.yml up -d
+# 注意: network_mode=host 使容器直用宿主机网络 ——
+#   - WebUI 6185 无需端口映射
+#   - mihomo 代理 127.0.0.1:7890 在容器内直接可达
+services:
+  astrbot:
+    image: ghcr.io/yijin840/cust-astrbot:latest
+    container_name: astrbot
+    restart: always
+    network_mode: host
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ${HOME}/astrbot/data:/AstrBot/data
+      - /etc/localtime:/etc/localtime:ro
