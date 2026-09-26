@@ -1495,18 +1495,51 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
             )
             if param_subset.tools and tool_names:
                 contexts = self._build_tool_requery_context(tool_names)
-                requery_resp = await self._await_or_stop(
-                    self.provider.text_chat(
-                        contexts=self._sanitize_contexts_for_provider(contexts),
-                        func_tool=param_subset,
-                        model=self.req.model,
-                        session_id=self.req.session_id,
-                        extra_user_content_parts=self.req.extra_user_content_parts,
-                        # tool_choice="required",
-                        abort_signal=self._abort_signal,
-                        request_max_retries=self.request_max_retries,
-                    )
+                # [reqfallback 20260925] The tool re-query used to call
+                # self.provider directly with NO fallback: a 503 here killed
+                # the whole agent run even when other providers were healthy
+                # (prod: 3.8 503 -> 3.7 answered -> 3.7 503 on re-query ->
+                # run died; 3.6/3.5/3.5-lite never got a chance). Iterate
+                # candidates the same way _iter_llm_responses_with_fallback does.
+                requery_kwargs = dict(
+                    contexts=self._sanitize_contexts_for_provider(contexts),
+                    func_tool=param_subset,
+                    model=self.req.model,
+                    session_id=self.req.session_id,
+                    extra_user_content_parts=self.req.extra_user_content_parts,
+                    # tool_choice="required",
+                    abort_signal=self._abort_signal,
+                    request_max_retries=self.request_max_retries,
                 )
+                requery_resp = None
+                requery_last_exc = None
+                for requery_cand in [self.provider, *self.fallback_providers]:
+                    if self._is_stop_requested():
+                        break
+                    try:
+                        requery_resp = await self._await_or_stop(
+                            requery_cand.text_chat(**requery_kwargs)
+                        )
+                        if requery_cand is not self.provider:
+                            logger.warning(
+                                "[reqfallback] tool re-query switched to fallback provider: %s",
+                                requery_cand.provider_config.get("id", "<unknown>"),
+                            )
+                        requery_last_exc = None
+                        break
+                    except Exception as requery_exc:
+                        requery_last_exc = requery_exc
+                        logger.warning(
+                            "[reqfallback] tool re-query provider %s failed: %s; trying next candidate",
+                            requery_cand.provider_config.get("id", "<unknown>"),
+                            requery_exc,
+                        )
+                if requery_resp is None:
+                    if requery_last_exc is not None:
+                        raise requery_last_exc
+                    raise RuntimeError(
+                        "tool re-query aborted before any provider succeeded"
+                    )
                 if requery_resp:
                     llm_resp = requery_resp
                     self._sanitize_malformed_tool_calls(llm_resp)

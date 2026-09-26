@@ -1,5 +1,15 @@
 import asyncio
 import base64
+
+# [sigfix 20260925] Placeholder thought_signature for functionCall parts that
+# lack one (real-format bytes copied from a legit historical signature).
+# Gemini 3.x 400-rejects replayed functionCall parts without a signature
+# ("Function call is missing a thought_signature"), killing the whole
+# fallback chain. Verified on 2026-09-25: unsigned & dummy signatures both
+# HTTP 200 on gemini-2.5-flash; missing signature on 3.x => 400 (prod logs).
+_XIAOWO_PLACEHOLDER_THOUGHT_SIG = (
+    "EmgKZgERTTIPp+1wOAvnTaVHdNAMg2Vgb3sdNg+X72OuPbPvMbhk5Sb8XOZ7XCRinbCwtCzlkO50N1eFUUTsblElyUK0Gf9bUqqM9af9Umh+vybd+pnMzzlzhHhq6KohIwynxFU8ulHYDQ=="
+)
 import json
 import logging
 import random
@@ -413,14 +423,20 @@ class ProviderGoogleGenAI(Provider):
                         # we should set thought_signature back to part if exists
                         # for more info about thought_signature, see:
                         # https://ai.google.dev/gemini-api/docs/thought-signatures
-                        if "extra_content" in tool and tool["extra_content"]:
-                            ts_bs64 = (
-                                tool["extra_content"]
-                                .get("google", {})
-                                .get("thought_signature")
+                        # [sigfix 20260925] A replayed functionCall without
+                        # thought_signature is 400-rejected by Gemini 3.x, nuking the
+                        # whole fallback chain. Inject a structurally-valid placeholder
+                        # when the stored tool_call has none (legacy poisoned rows).
+                        extra = tool.get("extra_content") or {}
+                        ts_bs64 = (extra.get("google") or {}).get(
+                            "thought_signature"
+                        )
+                        if ts_bs64:
+                            part.thought_signature = base64.b64decode(ts_bs64)
+                        else:
+                            part.thought_signature = base64.b64decode(
+                                _XIAOWO_PLACEHOLDER_THOUGHT_SIG
                             )
-                            if ts_bs64:
-                                part.thought_signature = base64.b64decode(ts_bs64)
                         parts.append(part)
 
                 if not parts:
@@ -572,11 +588,17 @@ class ProviderGoogleGenAI(Provider):
                 tool_call_id = part.function_call.id or part.function_call.name
                 llm_response.tools_call_ids.append(tool_call_id)
                 # extra_content
-                if part.thought_signature:
-                    ts_bs64 = base64.b64encode(part.thought_signature).decode("utf-8")
-                    llm_response.tools_call_extra_content[tool_call_id] = {
-                        "google": {"thought_signature": ts_bs64}
-                    }
+                # [sigfix 20260925] Always persist a thought_signature: a functionCall
+                # without one gets 400-rejected on replay by Gemini 3.x, poisoning the
+                # conversation history. When the model does not return one, store a
+                # structurally-valid placeholder instead of nothing.
+                ts_raw = part.thought_signature or base64.b64decode(
+                    _XIAOWO_PLACEHOLDER_THOUGHT_SIG
+                )
+                ts_bs64 = base64.b64encode(ts_raw).decode("utf-8")
+                llm_response.tools_call_extra_content[tool_call_id] = {
+                    "google": {"thought_signature": ts_bs64}
+                }
 
             if (
                 part.inline_data
