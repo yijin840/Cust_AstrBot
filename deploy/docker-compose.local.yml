@@ -1,0 +1,14 @@
+
+services:
+  astrbot:
+    image: soulter/astrbot:v4.27.5
+    container_name: astrbot
+    restart: always
+    network_mode: host
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ${HOME}/astrbot/data:/AstrBot/data
+      - ${HOME}/Cust_AstrBot/astrbot:/AstrBot/astrbot
+      - ${HOME}/Cust_AstrBot/main.py:/AstrBot/main.py
+      - /etc/localtime:/etc/localtime:ro
