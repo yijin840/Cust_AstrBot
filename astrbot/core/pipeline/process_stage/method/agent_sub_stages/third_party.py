@@ -75,9 +75,7 @@ async def run_third_party_agent(
         err_msg = custom_error_message
         if not err_msg:
             err_msg = (
-                f"Error occurred during AI execution.\n"
-                f"Error Type: {type(e).__name__} (3rd party)\n"
-                f"Error Message: {str(e)}"
+                "网抽风了，这条没接上，过会儿再喊我"
             )
         yield MessageChain().message(err_msg), True
 

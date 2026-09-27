@@ -1,4 +1,23 @@
 {
-  "_comment": "2026-09-21 11:38 用户指令：删除所有过滤器。22 条规则备份在同目录 output_filters.json.bak_22。保留 [pass] 拦截。",
-  "filters": []
+  "_comment": "2026-09-21 11:38 用户指令：删除所有过滤器。22 条规则备份在同目录 output_filters.json.bak_22。保留 [pass] 拦截。\n2026-09-27 10:40 用户指令'所有bug全部修复'：按原设计原则（prompt 是概率，正则是确定；只拦 100% AI 痕迹）补 3 条泄漏拦截——错误堆栈直出、内部任务书/规划泄漏、工具调用说明泄漏。不涉风格类规则。",
+  "filters": [
+    {
+      "name": "leak_error_stack",
+      "pattern": "Error occurred during AI execution|Error Type:\\s*\\w*Error|Traceback \\(most recent call last\\)",
+      "action": "reject",
+      "reason": "503/异常时模型把英文错误堆栈原文发给用户（09-23~24 实录 4 次）"
+    },
+    {
+      "name": "leak_internal_task_brief",
+      "pattern": "符合小蜗人设|保持小蜗人设|严禁输出任何系统|严禁输出任何\\s*CronJob|CronJob/系统调试信息|调用\\s*send_message_to_user|使用\\s*send_message_to_user|同时回复用户，告知",
+      "action": "reject",
+      "reason": "定时任务书/内部规划原文漏进回复（09-27 09:39 实录：'语气直接、短促，符合小蜗人设'整段发出）"
+    },
+    {
+      "name": "leak_tool_call_note",
+      "pattern": "memorize_long_term_memory|Wait, I MUST NOT return an empty response|Before calling any tool|MUST provide a brief explanatory message",
+      "action": "reject",
+      "reason": "工具调用说明泄漏（09-24 02:17 实录：memorize_long_term_memory 工具描述整段发出）"
+    }
+  ]
 }

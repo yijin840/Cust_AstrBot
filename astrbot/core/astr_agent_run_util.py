@@ -266,7 +266,7 @@ async def run_agent(
                             "Agent runner returned an error response without a message chain."
                         )
                         chain = MessageChain().message(
-                            "Error occurred during AI execution."
+                            "网抽风了，这条没接上，过会儿再喊我"
                         )
                     yield chain
                     continue
@@ -333,9 +333,7 @@ async def run_agent(
                 err_msg = custom_error_message
             else:
                 err_msg = (
-                    f"Error occurred during AI execution.\n"
-                    f"Error Type: {type(e).__name__}\n"
-                    f"Error Message: {str(e)}"
+                    "网抽风了，这条没接上，过会儿再喊我"
                 )
 
             error_llm_response = LLMResponse(
