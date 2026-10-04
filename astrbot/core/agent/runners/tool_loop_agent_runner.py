@@ -946,18 +946,20 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                     ),
                 ),
             )
-        if llm_resp.result_chain:
-            yield AgentResponse(
-                type="llm_result",
-                data=AgentResponseData(chain=llm_resp.result_chain),
-            )
-        elif llm_resp.completion_text:
-            yield AgentResponse(
-                type="llm_result",
-                data=AgentResponseData(
-                    chain=MessageChain().message(llm_resp.completion_text),
-                ),
-            )
+        if not llm_resp.tools_call_name:
+            # [xiaowo-patch 20260928] 工具轮伴随文本(思考叙述)不下发用户，仅保留在模型上下文
+            if llm_resp.result_chain:
+                yield AgentResponse(
+                    type="llm_result",
+                    data=AgentResponseData(chain=llm_resp.result_chain),
+                )
+            elif llm_resp.completion_text:
+                yield AgentResponse(
+                    type="llm_result",
+                    data=AgentResponseData(
+                        chain=MessageChain().message(llm_resp.completion_text),
+                    ),
+                )
 
         # 如果有工具调用，还需处理工具调用
         if llm_resp.tools_call_name:
