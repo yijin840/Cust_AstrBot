@@ -223,6 +223,10 @@ class GroupChatContext:
                         except Exception:
                             pass
                         _errs = []
+                        # [Cust] 2026-10-04 修 UnboundLocalError：候选全部失败时
+                        # 下面 `if caption is None` 会引用一个从未赋值的 caption
+                        # （2026-09-22 降级补丁引入），故先初始化。
+                        caption = None
                         for _pid in _cands:
                             try:
                                 caption = await self.get_image_caption(
