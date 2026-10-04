@@ -1,5 +1,5 @@
 {
-  "_comment": "2026-09-21 11:38 用户指令：删除所有过滤器。22 条规则备份在同目录 output_filters.json.bak_22。保留 [pass] 拦截。\n2026-09-27 10:40 用户指令'所有bug全部修复'：按原设计原则（prompt 是概率，正则是确定；只拦 100% AI 痕迹）补 3 条泄漏拦截——错误堆栈直出、内部任务书/规划泄漏、工具调用说明泄漏。不涉风格类规则。",
+  "_comment": "2026-09-21 11:38 用户指令：删除所有过滤器。22 条规则备份在 output_filters.json.bak_22。保留 [pass] 拦截。\n2026-09-27 10:40 用户指令'所有bug全部修复'：按原设计原则（prompt 是概率，正则是确定；只拦 100% AI 痕迹）补 3 条泄漏拦截——错误堆栈直出、内部任务书/规划泄漏、工具调用说明泄漏。不涉风格类规则。\n2026-09-27 19:44 新实录：'精准记录小帅 19:44 又吃了一个大苏苏烧烤实蛋。'+'由于要遵循真人感规则与发送纪律，快速落盘后简短吐槽'（降级模型 3.7-flash 在工具调用前播报操作）；19:37 实录：'把今天...写入长期记忆库，严格落实...'。补 2 条：记忆操作播报 + 注入块名词复读。刻意不收裸'落盘/记录'，避免误伤技术问答。\n2026-09-28 13:15 新实录：模型复读核心注入语 '(Note: You MUST NOT return an empty response after invoking a tool.)' + 空气泡（skills_like re-query 终局路径，guard 标记来不及打）。leak_tool_call_note 去掉 'Wait, ' 前缀要求；main.py 增加发送前兜底直查（on_decorating_result 里直接跑规则，不看标记）。中途叙述文本已在 09-28 上午用 runner 补丁根治（xiaowo-patch 20260928）。\n2026-09-29 00:10 新实录（22:46）：用户发睡眠截图，模型把视觉分析数据+人设指令模板块原文+两版草稿拼接整包当正文发出。当时 3.8-flash 与 3.7-flash 双双 503，全天降级。补 leak_prompt_template。\n2026-10-04 10:20 补 leak_tool_call_note_ci：实测 guard 用 re.compile(pattern) 无 IGNORECASE，大小写敏感，导致 10-01/10-03/10-04 三条实录泄漏全部漏过（规则写 'MUST provide...'，模型实际吐 'You must provide...'）。本条用 (?i) 内联标志做大小写不敏感匹配，并补齐另两条特征（'do not generate any extra text before calling the tool'、'this tool call will be processed immediately'）。runner 层已有 SYSTEM_INSTRUCTION_LEAK_MARKERS 兜底（走 repair 重试 + fallback 丢弃），本条是插件层第二道防线，两者独立。",
   "filters": [
     {
       "name": "leak_error_stack",
@@ -18,6 +18,30 @@
       "pattern": "memorize_long_term_memory|Wait, I MUST NOT return an empty response|Before calling any tool|MUST provide a brief explanatory message",
       "action": "reject",
       "reason": "工具调用说明泄漏（09-24 02:17 实录：memorize_long_term_memory 工具描述整段发出）"
+    },
+    {
+      "name": "leak_memory_narration",
+      "pattern": "写入(长期)?记忆|长期记忆库|记入(长期)?记忆|存入记忆|精准记录.{0,12}(又|吃了|拿出|加餐|第[一二三两\\d])|正在记录(小帅|主人|对方|你的|本次|该|这次)",
+      "action": "reject",
+      "reason": "记忆工具操作播报漏进回复（09-27 19:37/19:44 实录：'把今天...写入长期记忆库'/'精准记录小帅 19:44 又吃了...'）"
+    },
+    {
+      "name": "leak_meta_vocab",
+      "pattern": "真人感规则|发送纪律|人类对话风格|快速落盘",
+      "action": "reject",
+      "reason": "把注入块名词（【真人感规则】【发送纪律】）当话说了出来（09-27 19:44 实录'由于要遵循真人感规则与发送纪律，快速落盘后简短吐槽'）"
+    },
+    {
+      "name": "leak_prompt_template",
+      "pattern": "小蜗语气/性格|组织回答：|吐槽/锐评：|简洁短句，单条不超过|不使用表情符号、动作括号|镜像对方，保持自然轻快",
+      "action": "reject",
+      "reason": "人设/插件指令模板块被模型当正文整包复述（09-28 22:46 实录：睡眠截图回复带出视觉分析数据+prompt块+双版草稿拼接，当时 3.8/3.7-flash 双双 503 降级）"
+    },
+    {
+      "name": "leak_tool_call_note_ci",
+      "pattern": "(?i)(before calling the tool|do not generate any extra text|do not explain the tool call|do not return an empty response|brief explanatory message to the user|this tool call will be processed immediately|do not ignore the selected tools|you have decided to call tool\\(s\\)|using the tool schema)",
+      "action": "reject",
+      "reason": "大小写不敏感的 tool-call 系统指令泄漏拦截（10-04 实录：10-01 'Do NOT explain the tool call...You must provide...'、10-03 'Do not wait. This tool call will be processed immediately'、10-04 'Please do not generate any extra text before calling the tool' 三条全漏过——原 leak_tool_call_note 大小写敏感）。特征串与 runner 层 SYSTEM_INSTRUCTION_LEAK_MARKERS 对齐，全库 963 条回归零误杀。"
     }
   ]
 }
