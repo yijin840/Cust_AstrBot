@@ -146,6 +146,22 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
     REPEATED_TOOL_NOTICE_L1_THRESHOLD = 3
     REPEATED_TOOL_NOTICE_L2_THRESHOLD = 4
     REPEATED_TOOL_NOTICE_L3_THRESHOLD = 5
+    # [Cust] 系统指令泄漏特征串。Gemini 在 tool re-query 空转（不返回 tool_calls
+    # 而复述注入的 system instruction）时会把这些英文指令当正文返回，经
+    # "fallback to assistant response" 分支原样发给用户。这些串由 Gemini 服务端
+    # 注入，不在本仓库源码里，只能做特征匹配。
+    SYSTEM_INSTRUCTION_LEAK_MARKERS = (
+        "before calling the tool",
+        "do not generate any extra text",
+        "do not explain the tool call",
+        "explain the tool call",
+        "do not return an empty response",
+        "brief explanatory message to the user",
+        "this tool call will be processed immediately",
+        "do not ignore the selected tools",
+        "you have decided to call tool(s)",
+        "using the tool schema",
+    )
     MALFORMED_TOOL_NAME_PLACEHOLDER = "__malformed_tool_name__"
     REPEATED_TOOL_NOTICE_L1_TEMPLATE = (
         "\n\n[SYSTEM NOTICE] By the way, you have executed the same tool "
@@ -955,6 +971,17 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
                     logger.warning(
                         "skills_like tool re-query returned no tool calls; fallback to assistant response."
                     )
+                    # [Cust] 兜底：repair 重试后模型仍不按协议返回 tool_calls，
+                    # 且把注入的 system instruction 当正文吐回来。这种文本绝不能
+                    # 发给用户（会看到裸英文系统提示），直接丢弃并结束本轮。
+                    if self._is_system_instruction_leak(llm_resp.completion_text):
+                        logger.warning(
+                            "[Cust] suppressed system instruction leak in fallback "
+                            "assistant response: %r",
+                            (llm_resp.completion_text or "")[:200],
+                        )
+                        await self._complete_with_assistant_response(llm_resp)
+                        return
                     if llm_resp.reasoning_content:
                         yield AgentResponse(
                             type="llm_result",
@@ -1459,10 +1486,30 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         contexts.append({"role": "user", "content": instruction})
         return contexts
 
-    @staticmethod
-    def _has_meaningful_assistant_reply(llm_resp: LLMResponse) -> bool:
+    @classmethod
+    def _is_system_instruction_leak(cls, text: str | None) -> bool:
+        """[Cust] 判断文本是否是模型复述的 system instruction（泄漏）。
+
+        Gemini 在 tool re-query 空转时会把注入的英文指令当正文返回，若直接
+        发给用户就是裸系统提示。这里只做特征匹配，不做语义判断——宁可漏判
+        也不能误杀正常回复（误杀代价：正常回复被丢）。
+        """
+        if not text:
+            return False
+        lowered = text.strip().lower()
+        return any(m in lowered for m in cls.SYSTEM_INSTRUCTION_LEAK_MARKERS)
+
+    @classmethod
+    def _has_meaningful_assistant_reply(cls, llm_resp: LLMResponse) -> bool:
         text = (llm_resp.completion_text or "").strip()
-        return bool(text)
+        if not text:
+            return False
+        # [Cust] 泄漏的 system instruction 不算"有意义的回复"，这样
+        # _resolve_tool_exec 会走 repair 重试分支再要一次，而不是直接
+        # fallback 把裸指令发出去。
+        if cls._is_system_instruction_leak(text):
+            return False
+        return True
 
     def _build_tool_subset(self, tool_set: ToolSet, tool_names: list[str]) -> ToolSet:
         """Build a subset of tools from the given tool set based on tool names."""
