@@ -81,4 +81,27 @@ class XiaowoGuard(Star):
         if rule is None:
             return
         logger.info(f"[{PLUGIN_ID}] 阻止发送 rule={rule}")
+        # 🔴 2026-10-04 关键修复：**不能只靠 stop_event**。
+        #
+        # 本版本（v4.28.1）的 scheduler 对「含 yield 语句的 stage」走洋葱分支：
+        #   async for _ in agen:  is_stopped? -> 递归后续 stage
+        # 而 `else` 分支里那句「await coroutine; if is_stopped(): break」才是真正
+        # 阻止后续 stage 的地方。ResultDecorateStage.process 因为
+        # content_safe_check_reply=True（content_safety.also_use_in_response=true）
+        # 而**含有 yield 语句**，于是永远走洋葱分支 —— 它的 stop_event 之后，
+        # RespondStage 照样被执行。
+        # 实测（2026-10-04 23:27）：命中 fake_sub_url、stop_event 也调了，
+        # 但 respond.stage:212 依然打出「Prepare to send - <假地址>」= 消息发了出去。
+        #
+        # 所以这里必须**直接清空结果链**：RespondStage 开头就有
+        #   if not result.chain and ...: return
+        # 空链会被它自己挡下，不发送、也不触发 after_message_sent。
+        try:
+            res = event.get_result()
+            if res is not None and res.chain:
+                res.chain = []
+                logger.info(f"[{PLUGIN_ID}] 已清空结果链（rule={rule}）")
+        except Exception as e:
+            logger.error(f"[{PLUGIN_ID}] 清空结果链失败，仍尝试 stop_event: {e}")
         event.stop_event()
+
