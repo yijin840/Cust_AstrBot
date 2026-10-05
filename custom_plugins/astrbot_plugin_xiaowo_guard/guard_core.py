@@ -11,6 +11,26 @@ import re
 # 零宽字符：模型想吐空时曾被逼着吐过 U+200D，匹配前先清掉
 ZW_CHARS = "\u200b\u200c\u200d\ufeff"
 
+# [Cust 2026-10-05] 引用语境豁免。裸子串匹配会把「你说的那个
+# `before calling the tool` 我看了，文档里没这说法」这类**引用讨论**
+# 误判成泄漏（容器内 E2E 实录1 例误杀）。模型复述系统指令时是裸句
+# 直出、不会带引述标记，所以按引述标记豁免不产生漏判。
+_QUOTE_CHARS = "\"'”』」》〉`"
+_QUOTE_CONTEXT_RE = re.compile(
+    r"(?:所谓|叫做|名为|这句|那句|这段|那句英文|你说的|你提到|"
+    r"提到过|引用|原文是|写着|里面的)"
+)
+
+
+def _in_quote_context(text: str, start: int) -> bool:
+    """判断 text[start:] 处的特征串是否处于引用/讨论语境。"""
+    prefix = text[:start]
+    if not prefix:
+        return False
+    if prefix[-1] in _QUOTE_CHARS:
+        return True
+    return bool(_QUOTE_CONTEXT_RE.search(prefix[-12:]))
+
 # [pass] 沉默标记：中英文括号都收，字母间允许空白，大小写不敏感
 PASS_RE = re.compile(r"[\[［【（(]\s*p\s*a\s*s\s*s\s*[\]］】）)]", re.IGNORECASE)
 
@@ -63,7 +83,13 @@ def decide(filters, text: str):
     for name, pat in filters:
         if name == "markdown_list_leak" and has_code:
             continue
-        if pat.search(text):
-            return "block", name, None
+        match = pat.search(text)
+        if not match:
+            continue
+        # [Cust 2026-10-05] 引用语境豁免：命中位置处于「你说的那个X」
+        # 这类引述语境时不拦（真泄漏是裸句直出，不带引述标记）。
+        if _in_quote_context(text, match.start()):
+            continue
+        return "block", name, None
 
     return "send", None, None

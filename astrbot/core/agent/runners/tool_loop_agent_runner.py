@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import re
 import sys
 import time
 import traceback
@@ -150,6 +151,12 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
     # 而复述注入的 system instruction）时会把这些英文指令当正文返回，经
     # "fallback to assistant response" 分支原样发给用户。这些串由 Gemini 服务端
     # 注入，不在本仓库源码里，只能做特征匹配。
+    #
+    # 2026-10-05 补 2 条新变体（16:54:55 / 17:14:41 两次实录，均经 Splitter
+    # 直发通道外发，Prepare to send 通道抓不到——排查时务必两通道都扫）：
+    #   "Do not write anything other than the tool call.\n- **Purpose**: ..."
+    #   "- **Rules**: Call one or more tools. Do not output anything else."
+    # 旧 10 条覆盖不到这两种句式，导致 runner 层与guard 层同时漏过。
     SYSTEM_INSTRUCTION_LEAK_MARKERS = (
         "before calling the tool",
         "do not generate any extra text",
@@ -161,6 +168,8 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         "do not ignore the selected tools",
         "you have decided to call tool(s)",
         "using the tool schema",
+        "do not write anything other than",
+        "do not output anything else",
     )
     MALFORMED_TOOL_NAME_PLACEHOLDER = "__malformed_tool_name__"
     REPEATED_TOOL_NOTICE_L1_TEMPLATE = (
@@ -1495,11 +1504,35 @@ class ToolLoopAgentRunner(BaseAgentRunner[TContext]):
         Gemini 在 tool re-query 空转时会把注入的英文指令当正文返回，若直接
         发给用户就是裸系统提示。这里只做特征匹配，不做语义判断——宁可漏判
         也不能误杀正常回复（误杀代价：正常回复被丢）。
+
+        2026-10-05 加引用语境豁免：纯子串匹配会把「你说的那个 before calling
+        the tool 我看了，文档里没这说法」这类**引用讨论**误判成泄漏。判据是
+        特征串前面出现引述标记（引号/书名号/「解释提及动词）——模型复述系统
+        指令时是裸句直出，不会带这些。全库 1419 条历史发送回归零命中，说明
+        真实泄漏从不带引述标记，因此豁免不产生漏判。
         """
         if not text:
             return False
-        lowered = text.strip().lower()
-        return any(m in lowered for m in cls.SYSTEM_INSTRUCTION_LEAK_MARKERS)
+        stripped = text.strip()
+        lowered = stripped.lower()
+        for marker in cls.SYSTEM_INSTRUCTION_LEAK_MARKERS:
+            idx = lowered.find(marker)
+            if idx < 0:
+                continue
+            if idx == 0:
+                return True
+            prefix = stripped[:idx]
+            # 引用/转述语境：引号类闭合符号、书名号、常见引述动词打头。
+            if prefix[-1] in "\"'”』」』》〉`":
+                continue
+            if re.search(
+                r"(?:所谓|叫做|名为|这句|那句|这段|那句英文|你说的|你提到|"
+                r"提到过|引用|原文是|写着|里面的)",
+                prefix[-12:],
+            ):
+                continue
+            return True
+        return False
 
     @classmethod
     def _has_meaningful_assistant_reply(cls, llm_resp: LLMResponse) -> bool:
