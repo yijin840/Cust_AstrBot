@@ -214,10 +214,29 @@ class GroupChatContext:
                         # 503/429 不再单点失败导致整条消息看不到图。
                         _cands = [cfg["image_caption_provider_id"]]
                         try:
-                            _ps = self.context.get_config().get("provider_settings", {})
-                            for _pid in list(_ps.get("fallback_chat_models") or []) + [
-                                _ps.get("default_provider_id")
-                            ]:
+                            # [Cust 2026-10-06] 修键名：v4.28.1 的降级链在
+                            # agent_runner.config.model.fallback_provider_ids / .provider_id，
+                            # 旧的 provider_settings.fallback_chat_models / default_provider_id
+                            # 已不存在 -> 两处都取到 None -> 候选退化成单点（只有 caption provider
+                            # 自己），caption provider 一旦 429 就整条失败。实测日志：
+                            # 「获取图片描述失败（全部 1 个候选均失败）: gemini-3.8-flash」。
+                            _cfg_all = self.context.get_config()
+                            _acfg = (
+                                (_cfg_all.get("agent_runner") or {})
+                                .get("config", {})
+                                .get("model", {})
+                                or {}
+                            )
+                            _cands_src = list(_acfg.get("fallback_provider_ids") or []) + [
+                                _acfg.get("provider_id")
+                            ]
+                            if not any(_cands_src):
+                                # 兜底：老版本仍用旧键
+                                _ps = _cfg_all.get("provider_settings", {}) or {}
+                                _cands_src = list(_ps.get("fallback_chat_models") or []) + [
+                                    _ps.get("default_provider_id")
+                                ]
+                            for _pid in _cands_src:
                                 if _pid and _pid not in _cands:
                                     _cands.append(_pid)
                         except Exception:

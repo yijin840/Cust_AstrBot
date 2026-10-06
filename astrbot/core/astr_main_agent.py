@@ -757,6 +757,51 @@ async def _request_img_caption(
     return llm_resp.completion_text
 
 
+def _caption_candidate_ids(plugin_context: Context, primary: str) -> list[str]:
+    """[Cust 2026-10-06] 取 caption 候选 id 列表：配置的 caption provider 在前，
+    其余按主对话降级链补，且只收「有视觉能力(modalities 含 image)且 enable」的。
+
+    背景：原 `_ensure_img_caption` 只用单个 image_caption_provider，它 429/503
+    就整条失败，`req.image_urls` 被清空 -> 模型只收到 [Image Captioning Failed]
+    -> 表现为「小蜗看不到图」。2026-10-06 实录：
+      astr_main_agent:796 处理图片描述失败: Gemini API rate limit reached
+    键名对齐 v4.28.1：降级链在 agent_runner.config.model.fallback_provider_ids /
+    .provider_id（旧的 provider_settings.fallback_chat_models 已不存在）。
+    """
+    try:
+        root = plugin_context.get_config()
+    except Exception:
+        return [primary] if primary else []
+
+    vision: set[str] = set()
+    for p in root.get("provider") or []:
+        try:
+            if p.get("enable") and "image" in (p.get("modalities") or []):
+                vision.add(str(p.get("id")))
+        except Exception:
+            continue
+
+    model_cfg = (
+        ((root.get("agent_runner") or {}).get("config", {}) or {}).get("model", {}) or {}
+    )
+    chain = list(model_cfg.get("fallback_provider_ids") or []) + [
+        model_cfg.get("provider_id")
+    ]
+    if not any(chain):
+        ps = root.get("provider_settings", {}) or {}
+        chain = list(ps.get("fallback_chat_models") or []) + [
+            ps.get("default_provider_id")
+        ]
+
+    out: list[str] = []
+    for pid in [primary] + chain:
+        if not pid or pid in out:
+            continue
+        if pid == primary or str(pid) in vision:
+            out.append(str(pid))
+    return out
+
+
 async def _ensure_img_caption(
     event: AstrMessageEvent,
     req: ProviderRequest,
@@ -779,19 +824,42 @@ async def _ensure_img_caption(
         Successfully described image references, or an empty set on failure.
     """
     image_refs = set(req.image_urls)
+    # [Cust 2026-10-06] caption 候选降级：原实现只试 image_caption_provider 一个，
+    # 它 429/503 就整条失败（req.image_urls 被清空 -> 模型只收到
+    # [Image Captioning Failed] -> 表现为「小蜗看不到图」）。
+    _cands = _caption_candidate_ids(plugin_context, image_caption_provider)
     try:
-        caption = await _request_img_caption(
-            image_caption_provider,
-            cfg,
-            req.image_urls,
-            plugin_context,
-            montage_refs=montage_refs,
-        )
+        caption = None
+        _errs: list[str] = []
+        for _pid in _cands:
+            try:
+                caption = await _request_img_caption(
+                    _pid,
+                    cfg,
+                    req.image_urls,
+                    plugin_context,
+                    montage_refs=montage_refs,
+                )
+                if caption:
+                    if _pid != image_caption_provider:
+                        logger.warning(
+                            "图片描述已降级到备用 provider: %s（首选 %s 失败）",
+                            _pid,
+                            image_caption_provider,
+                        )
+                    break
+            except Exception as _e:  # noqa: BLE001
+                _errs.append("%s: %s" % (_pid, str(_e)[:120]))
+                continue
         if caption:
             req.extra_user_content_parts.append(
                 TextPart(text=f"<image_caption>{caption}</image_caption>")
             )
             return image_refs
+        raise Exception(
+            "all caption providers failed (%d): %s"
+            % (len(_cands), " | ".join(_errs)[:400])
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("处理图片描述失败: %s", exc)
         req.extra_user_content_parts.append(TextPart(text="[Image Captioning Failed]"))
