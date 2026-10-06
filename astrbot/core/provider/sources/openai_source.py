@@ -879,6 +879,29 @@ class ProviderOpenAIOfficial(Provider):
         if reasoning_content is not None:
             llm_response.reasoning_content = reasoning_content
 
+        # [xiaowo-patch dsml 20261006] 网关把工具调用退化成 DSML 文本时解析回标准 tool_calls
+        if not choice.message.tool_calls and tools is not None:
+            _dsml_calls, _dsml_before = _parse_dsml_tool_calls(
+                choice.message.content
+                if isinstance(choice.message.content, str)
+                else None
+            )
+            if _dsml_calls:
+                import time as _dsml_time
+
+                llm_response.role = "tool"
+                llm_response.tools_call_args = [c["args"] for c in _dsml_calls]
+                llm_response.tools_call_name = [c["name"] for c in _dsml_calls]
+                llm_response.tools_call_ids = [
+                    "dsml_%d_%d" % (int(_dsml_time.time() * 1000), i)
+                    for i in range(len(_dsml_calls))
+                ]
+                llm_response.tools_call_extra_content = {}
+                llm_response.result_chain = MessageChain().message(_dsml_before or "")
+                logger.warning(
+                    "[xiaowo-patch dsml] 网关 DSML 退化已抢救 -> "
+                    + str([c["name"] for c in _dsml_calls])
+                )
         # parse tool calls if any
         if choice.message.tool_calls and tools is not None:
             args_ls = []
@@ -1447,3 +1470,60 @@ class ProviderOpenAIOfficial(Provider):
     async def terminate(self):
         if self.client:
             await self.client.close()
+
+
+
+# [xiaowo-patch dsml 20261006] ===== DSML 工具调用抢救 =====
+# 背景：kexue 等第三方 OpenAI 兼容网关会把 DeepSeek 的工具调用"退化"成 DSML 文本
+# （实测 20-40% 概率），表现为 message.tool_calls 为空、content 里却写着
+# <｜DSML｜tool_calls><｜DSML｜invoke name="..."><｜DSML｜parameter ...>，
+# 导致 AstrBot 把它当普通文本回复发出去（用户看到一串尖括号乱码）。
+# 这里把这种文本解析回标准 tool_calls 结构，让后续流程完全不受影响。
+_DSML_PIPE = "\uff5c"  # 全角竖线 ｜  (U+FF5C)
+_DSML_TAG = _DSML_PIPE + "DSML" + _DSML_PIPE
+
+
+def _parse_dsml_tool_calls(content):
+    # 返回 (calls, text_before)
+    #   calls = [{"name": "search_music", "args": {"title": "天后"}}, ...] 或 None
+    #   text_before = DSML 块之前的那段正文（模型的铺垫话，可能为空）
+    if not content or _DSML_TAG not in content:
+        return None, None
+    m = re.search(r"<?" + re.escape(_DSML_TAG) + r"tool_calls\s*>", content)
+    if not m:
+        return None, None
+    text_before = content[: m.start()].strip()
+    block = content[m.start():]
+    inv_re = re.compile(
+        re.escape(_DSML_TAG)
+        + r'invoke\s+name="([^"]+)"\s*>(.*?)(?:</'
+        + re.escape(_DSML_TAG)
+        + r"invoke>|\Z)",
+        re.S,
+    )
+    par_re = re.compile(
+        re.escape(_DSML_TAG)
+        + r'parameter\s+name="([^"]+)"([^>]*)>(.*?)(?:</'
+        + re.escape(_DSML_TAG)
+        + r"parameter>|\Z)",
+        re.S,
+    )
+    calls = []
+    for inv in inv_re.finditer(block):
+        name, body = inv.group(1), inv.group(2)
+        args = {}
+        for pm in par_re.finditer(body):
+            pname, attrs, raw = pm.group(1), pm.group(2), pm.group(3).strip()
+            val = raw
+            if 'string="false"' in attrs or 'string="False"' in attrs:
+                try:
+                    val = json.loads(raw)
+                except Exception:
+                    val = raw
+            args[pname] = val
+        calls.append({"name": name, "args": args})
+    if not calls:
+        return None, None
+    return calls, text_before
+# [xiaowo-patch dsml 20261006] ===== end =====
+
